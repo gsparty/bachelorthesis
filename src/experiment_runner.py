@@ -1,10 +1,10 @@
-﻿"""
+"""
 experiment_runner.py
 ====================
 Main orchestrator for the emotional soft-jailbreak benchmarking experiment.
 
 Execution flow:
-    1. Load all 20 prompt variants (5 scenarios x 4 variants).
+    1. Load prompt variants (all 20, or first 4 if BENCHMARK_SMOKE=1).
     2. For each variant x each target provider/model, dispatch N_REPETITIONS
        async queries via AsyncLLMClient.
     3. Stream results to data/raw/<run_id>/<variant_id>_<provider>.jsonl
@@ -14,6 +14,7 @@ Configuration constants (edit before running):
     N_REPETITIONS   — number of stochastic repetitions per prompt (default: 30)
     TARGET_MODELS   — list of (Provider, model_string) tuples to benchmark
     CONCURRENCY     — max simultaneous API requests
+    EXPERIMENT_TEMPERATURE — sampling temperature (default 0.2; lower noise vs. stressor effects)
 """
 
 import asyncio
@@ -40,8 +41,15 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Experiment configuration — adjust as needed
 # ---------------------------------------------------------------------------
+# Smoke mode: few API calls for wiring checks. PowerShell:
+#   $env:BENCHMARK_SMOKE="1"; python experiment_runner.py
+_SMOKE = os.environ.get("BENCHMARK_SMOKE", "").strip().lower() in ("1", "true", "yes")
 
-N_REPETITIONS: int = 30  # FÜR DEN SMOKE TEST AUF 1 GESETZT
+N_REPETITIONS: int = 1 if _SMOKE else 30
+
+# In smoke mode, only first N variants (of 20); full run uses all.
+_VARIANT_SLICE = slice(0, 4) if _SMOKE else slice(None)
+EXPERIMENT_VARIANTS = ALL_VARIANTS[_VARIANT_SLICE]
 
 TARGET_MODELS: List[Tuple[Provider, str]] = [
     # WICHTIG: Lass immer nur EIN Modell unkommentiert (ohne '#'). 
@@ -61,6 +69,9 @@ TARGET_MODELS: List[Tuple[Provider, str]] = [
 ]
 
 CONCURRENCY: int = 1 # Etwas gedrosselt für die Free-Tier Limits
+
+# Low temperature reduces stochastic noise vs. stressor effects (review feedback).
+EXPERIMENT_TEMPERATURE: float = 0.2
 
 RAW_DATA_DIR = Path(__file__).parent.parent / "data" / "raw"
 RAW_DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -82,14 +93,14 @@ def build_requests(
         run_id, scenario_id, variant_id, variant_type, provider, model, rep_index
     """
     requests = []
-    for scenario_id, variant_id, variant in ALL_VARIANTS:
+    for scenario_id, variant_id, variant in EXPERIMENT_VARIANTS:
         for rep in range(N_REPETITIONS):
             requests.append(LLMRequest(
                 system_prompt=variant.system_prompt,
                 user_prompt=variant.user_prompt,
                 provider=provider,
                 model=model,
-                temperature=0.9,
+                temperature=EXPERIMENT_TEMPERATURE,
                 max_tokens=512,
                 metadata={
                     "run_id":       run_id,
@@ -100,6 +111,9 @@ def build_requests(
                     "provider":     provider.value,
                     "model":        model,
                     "rep_index":    rep,
+                    "temperature":  EXPERIMENT_TEMPERATURE,
+                    "user_prompt_chars":   len(variant.user_prompt),
+                    "system_prompt_chars": len(variant.system_prompt),
                 },
             ))
     return requests
@@ -121,10 +135,14 @@ def save_response(response: LLMResponse, output_dir: Path) -> None:
         "variant_id":       meta.get("variant_id"),
         "variant_type":     meta.get("variant_type"),
         "stressor":         meta.get("stressor"),
+        "temperature":      meta.get("temperature"),
+        "user_prompt_chars":   meta.get("user_prompt_chars"),
+        "system_prompt_chars": meta.get("system_prompt_chars"),
         "provider":         response.provider,
         "model":            response.model,
         "rep_index":        meta.get("rep_index"),
         "content":          response.content,
+        "response_chars":   len(response.content or ""),
         "prompt_tokens":    response.prompt_tokens,
         "completion_tokens":response.completion_tokens,
         "latency_ms":       response.latency_ms,
@@ -154,21 +172,24 @@ async def run_experiment() -> str:
     run_start = time.time()
 
     logger.info(f"=== Experiment run {run_id} starting ===")
-    logger.info(f"  Variants       : {len(ALL_VARIANTS)}")
+    logger.info(f"  Variants       : {len(EXPERIMENT_VARIANTS)}"
+                f"{' (SMOKE — set BENCHMARK_SMOKE=0 or unset for full)' if _SMOKE else ''}")
     logger.info(f"  Repetitions    : {N_REPETITIONS}")
     logger.info(f"  Target models  : {[(p.value, m) for p, m in TARGET_MODELS]}")
     logger.info(f"  Total requests : "
-                f"{len(ALL_VARIANTS) * N_REPETITIONS * len(TARGET_MODELS)}")
+                f"{len(EXPERIMENT_VARIANTS) * N_REPETITIONS * len(TARGET_MODELS)}")
     logger.info(f"  Output dir     : {run_dir}")
 
     manifest = {
         "run_id":        run_id,
         "run_start_utc": datetime.now(timezone.utc).isoformat(),
+        "experiment_temperature": EXPERIMENT_TEMPERATURE,
         "n_repetitions": N_REPETITIONS,
         "target_models": [{"provider": p.value, "model": m}
                           for p, m in TARGET_MODELS],
-        "n_variants":    len(ALL_VARIANTS),
-        "total_requests": len(ALL_VARIANTS) * N_REPETITIONS * len(TARGET_MODELS),
+        "n_variants":    len(EXPERIMENT_VARIANTS),
+        "smoke_mode":    _SMOKE,
+        "total_requests": len(EXPERIMENT_VARIANTS) * N_REPETITIONS * len(TARGET_MODELS),
         "provider_runs":  [],
     }
 

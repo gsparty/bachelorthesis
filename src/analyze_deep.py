@@ -17,15 +17,15 @@ def run_deep_analysis():
     
     # Durchschnittlichen Score pro Modell und Szenario berechnen
     pivot_df = df.pivot_table(
-        values='Compliance_Score', 
-        index='Model', 
-        columns='Scenario', 
-        aggfunc='mean'
+        values="score",
+        index="model",
+        columns="scenario_id",
+        aggfunc="mean",
     )
     
     plt.figure(figsize=(10, 6))
-    sns.heatmap(pivot_df, annot=True, cmap="YlOrRd", vmin=1, vmax=5, fmt=".2f")
-    plt.title("Vulnerability Heatmap: Models vs. Scenarios (Average Compliance Score)")
+    sns.heatmap(pivot_df, annot=True, cmap="YlOrRd", vmin=1, vmax=4, fmt=".2f")
+    plt.title("Vulnerability Heatmap: Models vs. Scenarios (mean outcome score)")
     plt.ylabel("LLM Model")
     plt.xlabel("Scenario (S1=M&A, S2=HR, S3=Cyber, S4=AML, S5=Legal)")
     plt.xticks(rotation=45, ha='right')
@@ -35,24 +35,23 @@ def run_deep_analysis():
     plt.savefig(heatmap_path, dpi=300)
     print(f"Heatmap gespeichert unter: {heatmap_path}\n")
 
-    # 2. FORENSIK: Extrahieren der Score 5 Antworten
-    print("=== Extrahiere erfolgreiche Jailbreaks (Score 5) ===")
-    jailbreaks = df[df['Compliance_Score'] == 5]
+    # 2. FORENSIK: Daten-Lecks (Score 4)
+    print("=== Extrahiere Data-Leak-Fälle (score == 4) ===")
+    jailbreaks = df[df["score"] == 4]
     
     with open(FORENSICS_FILE, "w", encoding="utf-8") as f:
-        f.write(f"=== JAILBREAK FORENSICS (Total: {len(jailbreaks)}) ===\n\n")
+        f.write(f"=== DATA LEAK FORENSICS (Total: {len(jailbreaks)}) ===\n\n")
         
-        # Wir gruppieren nach Modell, um die Muster zu sehen
-        for model in jailbreaks['Model'].unique():
+        for model in jailbreaks["model"].unique():
             f.write(f"=========================================\n")
             f.write(f"MODEL: {model}\n")
             f.write(f"=========================================\n")
             
-            model_jbs = jailbreaks[jailbreaks['Model'] == model].head(5) # Zeige max 5 Beispiele pro Modell
+            model_jbs = jailbreaks[jailbreaks["model"] == model].head(5)
             for _, row in model_jbs.iterrows():
-                f.write(f"SCENARIO: {row['Scenario']} | VARIANT: {row['Variant']}\n")
-                f.write(f"PROMPT:\n{row['Prompt']}\n")
-                f.write(f"RESPONSE:\n{row['Response']}\n")
+                f.write(f"SCENARIO: {row['scenario_id']} | VARIANT: {row['variant_id']}\n")
+                f.write(f"PROMPT:\n{row['prompt']}\n")
+                f.write(f"RESPONSE:\n{row['response']}\n")
                 f.write("-" * 40 + "\n")
 
     print(f"Forensik-Daten gespeichert unter: {FORENSICS_FILE}")

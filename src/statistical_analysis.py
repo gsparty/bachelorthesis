@@ -1,11 +1,11 @@
-﻿"""
+"""
 statistical_analysis.py
 ========================
-Non-parametric statistical analysis of the ordinal compliance scores.
+Non-parametric statistical analysis of ordinal outcome scores (1–4).
 
 Methods:
     - Kruskal-Wallis H-test  : One-way ANOVA on ranks; tests whether ≥3 groups
-                               (variant types) differ in compliance score distributions.
+                               (variant types) differ in score distributions.
     - Mann-Whitney U test     : Pairwise comparison between two groups; used for
                                post-hoc analysis after a significant Kruskal-Wallis result.
     - Effect size (rank-biserial correlation r): Computed alongside Mann-Whitney U.
@@ -19,7 +19,7 @@ Expected DataFrame schema (from scoring_engine + experiment_runner):
         variant_type  (str)  : "neutral" | "authority" | "time_pressure" | "combined"
         provider      (str)  : "groq" | "openai" | "anthropic"
         model         (str)  : model identifier string
-        score         (int)  : 1–5 ordinal compliance score
+        score         (int)  : 1–4 ordinal outcome (refusal / partial / hallucination / leak)
 """
 
 import logging
@@ -245,9 +245,9 @@ def plot_score_distributions(
             )
             ax.set_title(facet_val, fontsize=11, fontweight="bold")
             ax.set_xlabel("")
-            ax.set_ylabel("Compliance Score (1–5)" if ax == axes[0] else "")
-            ax.set_ylim(0.5, 5.5)
-            ax.set_yticks([1, 2, 3, 4, 5])
+            ax.set_ylabel("Outcome score (1–4)" if ax == axes[0] else "")
+            ax.set_ylim(0.5, 4.5)
+            ax.set_yticks([1, 2, 3, 4])
             ax.tick_params(axis="x", rotation=30)
     else:
         fig, ax = plt.subplots(figsize=(8, 5))
@@ -262,13 +262,13 @@ def plot_score_distributions(
             jitter=True, ax=ax,
         )
         ax.set_xlabel("Variant Type", fontsize=11)
-        ax.set_ylabel("Compliance Score (1–5)", fontsize=11)
-        ax.set_ylim(0.5, 5.5)
-        ax.set_yticks([1, 2, 3, 4, 5])
+        ax.set_ylabel("Outcome score (1–4)", fontsize=11)
+        ax.set_ylim(0.5, 4.5)
+        ax.set_yticks([1, 2, 3, 4])
         ax.tick_params(axis="x", rotation=20)
 
     fig.suptitle(
-        "LLM Compliance Score Distributions by Emotional Stressor Variant",
+        "LLM outcome score distributions by stressor variant",
         fontsize=13, fontweight="bold", y=1.01,
     )
     plt.tight_layout()
@@ -287,7 +287,7 @@ def plot_heatmap_median_scores(
     save_path: Optional[str] = None,
 ) -> plt.Figure:
     """
-    Heatmap of median compliance scores (scenario x variant_type).
+    Heatmap of median outcome scores (scenario x variant_type).
     """
     pivot = (
         df.groupby([row_col, col_col])[score_col]
@@ -300,11 +300,11 @@ def plot_heatmap_median_scores(
     fig, ax = plt.subplots(figsize=(8, 5))
     sns.heatmap(
         pivot, annot=True, fmt=".1f", cmap="RdYlGn",
-        vmin=1, vmax=5, linewidths=0.5, linecolor="white",
-        ax=ax, cbar_kws={"label": "Median Compliance Score"},
+        vmin=1, vmax=4, linewidths=0.5, linecolor="white",
+        ax=ax, cbar_kws={"label": "Median outcome score"},
     )
     ax.set_title(
-        "Median Compliance Score: Scenario × Variant Type",
+        "Median outcome score: scenario × variant type",
         fontsize=13, fontweight="bold",
     )
     ax.set_xlabel("Variant Type", fontsize=11)
@@ -364,7 +364,7 @@ if __name__ == "__main__":
         "scenario_id":  rng.choice(["S1","S2","S3","S4","S5"], n),
         "variant_type": rng.choice(VARIANT_ORDER, n),
         "provider":     rng.choice(["groq","openai"], n),
-        "score":        rng.integers(1, 6, n),
+        "score":        rng.integers(1, 5, n),
     })
     results = run_full_analysis(synthetic)
     print("\nDescriptive stats:\n", results["descriptive"])
